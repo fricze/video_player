@@ -6,7 +6,10 @@ use sdl2::render::TextureAccess;
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ffmpeg::init().unwrap();
+    ffmpeg::init().unwrap_or_else(|e| {
+        eprintln!("Failed to initialize ffmpeg: {}", e);
+        std::process::exit(1);
+    });
 
     // Parse the input video file path from command line arguments
     let args: Vec<String> = env::args().collect();
@@ -43,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             decoder.height() as u32,
         )
         .position_centered()
+        .resizable()
         .build()
         .unwrap_or_else(|e| {
             eprintln!("Failed to create SDL2 window: {}", e);
@@ -61,7 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             decoder.width() as u32,
             decoder.height() as u32,
         )
-        .unwrap();
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to create SDL2 texture: {}", e);
+            std::process::exit(1);
+        });
 
     // Frame decoding
     let mut scaler = ffmpeg::software::scaling::Context::get(
@@ -113,13 +120,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 canvas.clear();
                 canvas.copy(&texture, None, None)?;
                 canvas.present();
-
-                // for event in event_pump.poll_iter() {
-                //     if let sdl2::event::Event::Quit { .. } = event {
-                //         println!("Quit event received");
-                //         break 'main;
-                //     }
-                // }
 
                 // Simulate 40ms per frame (~25 FPS)
                 std::thread::sleep(std::time::Duration::from_millis(40));
