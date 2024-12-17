@@ -128,7 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Main loop for decoding and rendering
     // 'main: for (stream, packet) in ictx.packets() {
-    'main: for _ in 0.. {
+    'main: loop {
         for event in event_pump.poll_iter() {
             if let sdl2::event::Event::Quit { .. } = event {
                 println!("Quit event received");
