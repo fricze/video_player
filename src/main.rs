@@ -2,6 +2,7 @@ extern crate ffmpeg_next as ffmpeg;
 
 extern crate sdl2;
 use sdl2::pixels::PixelFormatEnum;
+use sdl2::rect::Point;
 use sdl2::render::TextureAccess;
 use std::env;
 use std::sync::{Arc, Mutex};
@@ -124,7 +125,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            // std::thread::sleep(std::time::Duration::from_millis(40));
+            // Simulate ~25 FPS (40ms per frame)
+            std::thread::sleep(std::time::Duration::from_millis(40));
         }
     });
 
@@ -132,16 +134,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut frame_queue = Vec::new();
     let mut event_pump = sdl_context.event_pump()?;
 
-    // Main loop for decoding and rendering
-    // 'main: for (stream, packet) in ictx.packets() {
+    let mut mouse_pos = (0, 0);
+
     'main: loop {
         for event in event_pump.poll_iter() {
-            if let sdl2::event::Event::Quit { .. } = event {
-                println!("Quit event received");
-                quit = true;
-                break;
+            println!("{:?}", event);
+
+            match event {
+                sdl2::event::Event::Quit { .. } => {
+                    println!("Quit event received");
+                    quit = true;
+                    break;
+                }
+                sdl2::event::Event::MouseMotion { x, y, .. } => {
+                    mouse_pos = (x, y);
+                }
+                _ => (),
             }
         }
+
         if quit {
             break 'main;
         }
@@ -150,9 +161,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut frame_sender_lock = frame_sender.lock().unwrap();
             if let Some(decoded_frame) = frame_sender_lock.pop() {
                 frame_queue.push(decoded_frame);
-            } else {
-                quit = true;
             }
+        }
+
+        if frame_queue.len() > 1 {
+            frame_queue.drain(0..frame_queue.len() - 1); // Drop older frames, keep the latest
         }
 
         if !frame_queue.is_empty() {
@@ -175,10 +188,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             canvas.clear();
             canvas.copy(&texture, None, None).unwrap();
-            canvas.present();
 
-            // Simulate ~25 FPS (40ms per frame)
-            std::thread::sleep(std::time::Duration::from_millis(40));
+            // Set the drawing color to silver (RGB: 192, 192, 192, fully opaque)
+            canvas.set_draw_color(sdl2::pixels::Color::RGB(192, 192, 192));
+
+            // Draw a line across the video
+            let start_point = Point::new(0, 10); // Start at the middle-left
+            let end_point = Point::new(mouse_pos.0, mouse_pos.1); // End at the middle-right
+            canvas.draw_line(start_point, end_point).unwrap();
+
+            canvas.present();
         }
     }
 
