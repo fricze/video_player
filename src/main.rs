@@ -1,8 +1,12 @@
 extern crate ffmpeg_next as ffmpeg;
 
 extern crate sdl2;
+use ffmpeg::ffi::{avio_seek, AVFormatContext, AVSEEK_SIZE};
+use ffmpeg::util::frame::Video;
+
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::TextureAccess;
+use std::collections::BTreeMap;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -33,18 +37,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Open the input video file and find the best stream
     // that's super cool that you can just ask ffmpeg for "best" stream
-    let input_context = ffmpeg::format::input(&input_path)?;
-    let video_stream_index = input_context
+    let ictx = ffmpeg::format::input(&input_path)?;
+    let video_stream_index = ictx
         .streams()
         .best(ffmpeg::media::Type::Video)
         .ok_or("Could not find a video stream")?
         .index();
 
     let codec_context = ffmpeg::codec::context::Context::from_parameters(
-        input_context
-            .stream(video_stream_index)
-            .unwrap()
-            .parameters(),
+        ictx.stream(video_stream_index).unwrap().parameters(),
     )?;
     let decoder = codec_context.decoder().video().unwrap();
 
@@ -88,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         });
 
-    let video_frames = Arc::new(Mutex::new(Vec::<ffmpeg::util::frame::Video>::new()));
+    let video_frames = Arc::new(Mutex::new(BTreeMap::<i64, Vec<Video>>::new()));
 
     // Worker thread for decoding frames and converting to textures
     let frame_sender = Arc::clone(&video_frames);
@@ -98,6 +99,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let position = 93184;
         ictx.seek(position, ..).unwrap();
+
+        let avio_ctx = unsafe {
+            let format_ctx: *mut AVFormatContext = ictx.as_mut_ptr();
+            (*format_ctx).pb
+        };
+        if avio_ctx.is_null() {
+            println!("No AVIOContext found");
+        } else {
+            let position = unsafe { avio_seek(avio_ctx, 0, AVSEEK_SIZE) };
+            println!("position: {}", position);
+        }
 
         let video_stream_index = ictx
             .streams()
@@ -122,7 +134,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 while decoder.receive_frame(&mut new_frame).is_ok() {
                     if packet.pts().unwrap_or(0) >= position {
                         let mut frame_sender_lock = frame_sender.lock().unwrap();
-                        frame_sender_lock.push(new_frame.clone());
+                        let pts = new_frame.pts().unwrap_or(0);
+                        frame_sender_lock
+                            .entry(pts)
+                            .or_default()
+                            .push(new_frame.clone());
 
                         // Simulate ~25 FPS (40ms per frame)
                         std::thread::sleep(std::time::Duration::from_millis(40));
@@ -154,28 +170,66 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         {
             let mut frames_lock = video_frames.lock().unwrap();
-            if let Some(video_frame) = frames_lock.pop() {
-                texture
-                    .update_yuv(
-                        None,
-                        video_frame.data(0),
-                        video_frame.stride(0) as usize,
-                        video_frame.data(1),
-                        video_frame.stride(1) as usize,
-                        video_frame.data(2),
-                        video_frame.stride(2) as usize,
-                    )
-                    .unwrap_or_else(|e| {
-                        eprintln!("Failed to update SDL2 texture: {}", e);
-                        std::process::exit(1);
-                    });
+            if !frames_lock.is_empty() {
+                // Get the smallest PTS (first in order)
+                if let Some((&pts, frames)) = frames_lock.iter().next() {
+                    if let Some(video_frame) = frames.get(0) {
+                        // Update texture with frame data
+                        texture
+                            .update_yuv(
+                                None,
+                                video_frame.data(0),
+                                video_frame.stride(0) as usize,
+                                video_frame.data(1),
+                                video_frame.stride(1) as usize,
+                                video_frame.data(2),
+                                video_frame.stride(2) as usize,
+                            )
+                            .unwrap();
 
-                canvas.clear();
-                canvas.copy(&texture, None, None).unwrap();
+                        canvas.clear();
+                        canvas.copy(&texture, None, None).unwrap();
+                        canvas.present();
 
-                canvas.present();
+                        // Remove the frame after it's been displayed or move to the next if there are multiple at the same PTS
+                        if frames.len() == 1 {
+                            frames_lock.remove(&pts);
+                        } else {
+                            let frames = frames_lock.get_mut(&pts).unwrap();
+                            frames.remove(0);
+                            if frames.is_empty() {
+                                frames_lock.remove(&pts);
+                            }
+                        }
+                    }
+                }
             }
         }
+
+        // {
+        //     let mut frames_lock = video_frames.lock().unwrap();
+        //     if let Some(video_frame) = frames_lock.pop() {
+        //         texture
+        //             .update_yuv(
+        //                 None,
+        //                 video_frame.data(0),
+        //                 video_frame.stride(0) as usize,
+        //                 video_frame.data(1),
+        //                 video_frame.stride(1) as usize,
+        //                 video_frame.data(2),
+        //                 video_frame.stride(2) as usize,
+        //             )
+        //             .unwrap_or_else(|e| {
+        //                 eprintln!("Failed to update SDL2 texture: {}", e);
+        //                 std::process::exit(1);
+        //             });
+
+        //         canvas.clear();
+        //         canvas.copy(&texture, None, None).unwrap();
+
+        //         canvas.present();
+        //     }
+        // }
     }
 
     println!("Playback Finished!");
