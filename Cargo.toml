@@ -3,5 +3,5 @@ name = "video_player"
 version = "0.0.1"
 
 [dependencies]
-ffmpeg-next = "7.1.0" # Use the latest version available
-sdl2 = "0.35.2"
+ffmpeg-next = "7.1.0"
+sdl2 = { version = "0.35.2", features = ["ttf"] }
