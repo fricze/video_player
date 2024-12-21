@@ -1,5 +1,4 @@
 extern crate ffmpeg_next as ffmpeg;
-use ffmpeg::rescale::TIME_BASE;
 use sdl2::rect::Rect;
 
 extern crate sdl2;
@@ -24,7 +23,7 @@ fn format_duration(duration_secs: f64) -> String {
     format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
 }
 
-fn fps_to_ms(fps: f64) -> f64 {
+fn _fps_to_ms(fps: f64) -> f64 {
     if fps == 0.0 {
         panic!("FPS cannot be zero for frame duration calculation");
     }
@@ -120,16 +119,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let position = 0;
         ictx.seek(position, ..).unwrap();
 
-        let avio_ctx = unsafe {
-            let format_ctx: *mut AVFormatContext = ictx.as_mut_ptr();
-            (*format_ctx).pb
-        };
-        if avio_ctx.is_null() {
-            println!("No AVIOContext found");
-        } else {
-            let position = unsafe { avio_seek(avio_ctx, 0, AVSEEK_SIZE) };
-            println!("position: {}", position);
-        }
+        // let avio_ctx = unsafe {
+        //     let format_ctx: *mut AVFormatContext = ictx.as_mut_ptr();
+        //     (*format_ctx).pb
+        // };
+        // if avio_ctx.is_null() {
+        //     println!("No AVIOContext found");
+        // } else {
+        //     let position = unsafe { avio_seek(avio_ctx, 0, AVSEEK_SIZE) };
+        //     println!("position: {}", position);
+        // }
 
         let video_stream_index = ictx
             .streams()
@@ -227,15 +226,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         canvas.copy(&texture, None, None).unwrap();
 
                         let video_duration = video_duration / ffmpeg::ffi::AV_TIME_BASE as i64;
-                        let pts_in_seconds = pts as f64 * time_base.numerator() as f64
-                            / time_base.denominator() as f64;
+                        let time_base_multiplier =
+                            time_base.numerator() as f64 / time_base.denominator() as f64;
+                        let pts_in_seconds = pts as f64 * time_base_multiplier;
 
                         // Calculate progress
                         let progress = pts_in_seconds as f64 / video_duration as f64 * 100.0;
-
-                        // println!("pts_in_sec : {}", pts_in_seconds);
-                        // println!("duration : {}", video_duration);
-                        // println!("progress: {}", progress);
 
                         let width = decoder.width() as f64 / 100.0 * (progress as f64);
 
